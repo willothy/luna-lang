@@ -1,0 +1,14 @@
+[package]
+name = "luna-lang"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "luna"
+path = "src/main.rs"
+
+[dependencies]
+bumpalo = "3.13.0"
+chumsky = { git = "https://github.com/zesterer/chumsky", version = "1.0.0-alpha.4", features = ["label", "either", "regex", "sync", "spin", "memoization"] }
+lasso = "0.7.2"
+slotmap = "1.0.6"
