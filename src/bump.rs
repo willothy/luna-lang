@@ -11,7 +11,6 @@ impl<T> Clone for Node<T> {
         Node(self.0, std::marker::PhantomData)
     }
 }
-
 impl<T> Copy for Node<T> {}
 
 impl<T> PartialEq for Node<T> {

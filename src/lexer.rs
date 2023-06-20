@@ -1,6 +1,8 @@
-use chumsky::primitive::none_of;
+use chumsky::primitive::{any, none_of};
+use chumsky::recovery::{nested_delimiters, skip_until, via_parser};
 use chumsky::recursive::recursive;
 use chumsky::span::SimpleSpan;
+use chumsky::text::{newline, Char};
 use chumsky::ParseResult;
 use chumsky::{
     extra::Full,
@@ -78,7 +80,7 @@ pub fn sym<'a>() -> impl Atom<'a> {
             just(".."),
             just("?"),
         ))
-        .then(just('=').ignored().or_not())
+        .then(just('=').or_not())
         .map(|(op, eq)| {
             macro_rules! select {
                 ($a:ident, $b:ident) => {
@@ -194,12 +196,12 @@ impl Flatten for Spanned<TokenTree> {
             TokenTree::Tree(d, tts) => {
                 let mut tokens =
                     vec![(Token::Open(d), SimpleSpan::new(self.1.start, self.1.start))];
-                let mut last = self.1.end;
+                let mut close = self.1.end;
                 for tt in tts {
-                    last = tt.1.end;
+                    close = tt.1.end;
                     tokens.extend(tt.flatten());
                 }
-                tokens.push((Token::Close(d), SimpleSpan::new(last, last)));
+                tokens.push((Token::Close(d), SimpleSpan::new(close, close)));
                 tokens
             }
         }
@@ -221,8 +223,11 @@ pub fn lexer<'a>() -> impl Tokenizer<'a, Vec<Spanned<Token>>> {
         let token_tree = tt
             .padded()
             .repeated()
-            .collect::<Vec<_>>()
+            .collect::<Vec<(TokenTree, SimpleSpan)>>()
             .delimited_by(just('('), just(')'))
+            .recover_with(via_parser(
+                none_of('(').repeated().then(just(')')).map(|_| vec![]),
+            ))
             .map(|tts| TokenTree::Tree(Delim::Paren, tts));
 
         token()
@@ -235,34 +240,38 @@ pub fn lexer<'a>() -> impl Tokenizer<'a, Vec<Spanned<Token>>> {
         .map(|tt| tt.flatten())
 }
 
-pub struct Lexer {
-    rodeo: Rodeo<Spur>,
+pub struct Lexer<'a> {
+    rodeo: &'a mut Rodeo<Spur>,
 }
 
-impl Lexer {
-    pub fn new() -> Self {
-        Self {
-            rodeo: Rodeo::default(),
-        }
+impl<'a> Lexer<'a> {
+    pub fn new(rodeo: &'a mut Rodeo) -> Self {
+        Self { rodeo }
     }
 
-    pub fn lex<'a>(&mut self, chunk: &'a str) -> ParseResult<Vec<Spanned<Token>>, Rich<'a, char>> {
+    pub fn lex(&mut self, chunk: &'a str) -> ParseResult<Vec<Spanned<Token>>, Rich<'a, char>> {
         lexer().parse_with_state(chunk, &mut self.rodeo)
     }
 }
 
-pub fn print_tokens(tokens: &[Spanned<Token>], rodeo: &Rodeo) {
-    for (token, span) in tokens {
-        match token {
-            Token::Ident(key) => println!("Ident: {} at {}", rodeo.resolve(&key), span),
-            Token::Int(v) => println!("Int: {} at {}", v, span),
-            Token::Float(v) => println!("Float: {} at {}", v, span),
-            Token::Str(v) => println!("Str: {} at {}", rodeo.resolve(&v), span),
-            Token::Open(v) => println!("Open: {} at {}", v, span),
-            Token::Close(v) => println!("Close: {} at {}", v, span),
-            Token::Symbol(v) => println!("Symbol: {} at {}", v, span),
-            Token::Keyword(v) => println!("Keyword: {} at {}", v, span),
-            Token::Bool(v) => println!("Bool: {} at {}", v, span),
+pub trait PrintTokens {
+    fn print(&self, rodeo: &Rodeo<Spur>);
+}
+
+impl PrintTokens for Vec<Spanned<Token>> {
+    fn print(&self, rodeo: &Rodeo<Spur>) {
+        for (token, span) in self {
+            match token {
+                Token::Ident(key) => println!("Ident: {} at {}", rodeo.resolve(&key), span),
+                Token::Int(v) => println!("Int: {} at {}", v, span),
+                Token::Float(v) => println!("Float: {} at {}", v, span),
+                Token::Str(v) => println!("Str: {} at {}", rodeo.resolve(&v), span),
+                Token::Open(v) => println!("Open: {} at {}", v, span),
+                Token::Close(v) => println!("Close: {} at {}", v, span),
+                Token::Symbol(v) => println!("Symbol: {} at {}", v, span),
+                Token::Keyword(v) => println!("Keyword: {} at {}", v, span),
+                Token::Bool(v) => println!("Bool: {} at {}", v, span),
+            }
         }
     }
 }

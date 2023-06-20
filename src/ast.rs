@@ -5,27 +5,27 @@ use crate::{bump::Node, token::Symbol, Spanned};
 pub type Module = Node<Spanned<Block>>;
 
 pub enum Expr {
-    Import(Spanned<Import>),
-    Let(Spanned<Let>),
-    If(Spanned<If>),
-    While(Spanned<While>),
-    For(Spanned<For>),
-    Loop(Spanned<Loop>),
+    Import(Import),
+    Let(Let),
+    If(If),
+    While(While),
+    For(For),
+    Loop(Loop),
     Continue,
     Break(Option<Node<Spanned<Expr>>>),
     Return(Option<Node<Spanned<Expr>>>),
     Paren(Node<Spanned<Expr>>),
     // fn name(x: ty) -> ty
     //   ...
-    FuncDecl(Spanned<NamedFunc>),
+    FuncDecl(NamedFunc),
     // fn(x: ty) -> ty =>
-    AnonFunc(Spanned<AnonFunc>),
+    AnonFunc(AnonFunc),
     // fn ty:method(x: ty) -> ty
     //   ...
-    Method(Spanned<Method>),
-    StructDef(Spanned<StructDef>),
-    StructInit(Spanned<StructInit>),
-    ListInit(Spanned<ListInit>),
+    Method(Method),
+    StructDef(StructDef),
+    StructInit(StructInit),
+    ListInit(ListInit),
 
     // var
     Ident(Spur),

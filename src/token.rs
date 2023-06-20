@@ -5,7 +5,7 @@ use lasso::Spur;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(Spur),
-    Int(u64),
+    Int(i64),
     Float(f64),
     Str(Spur),
     Open(Delim),

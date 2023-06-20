@@ -1,7 +1,8 @@
 use chumsky::{
     extra::ParserExtra,
     input::ValueInput,
-    primitive::any,
+    primitive::{any, none_of},
+    recovery::{skip_until, via_parser},
     span::Span,
     text::{newline, Char},
     IterParser, Parser,
@@ -43,7 +44,10 @@ where
     let lines = line_ws
         .repeated()
         .collect::<Vec<char>>()
-        .then(line.map_with_span(|line, span| (line, span)))
+        .then(
+            line.recover_with(skip_until(newline().not().repeated(), newline(), || vec![]))
+                .map_with_span(|line, span| (line, span)),
+        )
         .separated_by(newline())
         .collect::<Vec<_>>()
         .padded();
