@@ -1,31 +1,19 @@
-use std::{fmt::Display, marker::PhantomData, path::Path};
+use std::fmt::Display;
 
-use ariadne::Source;
-use chumsky::{
-    extra::Full,
-    input::{BoxedStream, Offset, StrInput, ValueInput},
-    prelude::{Input, Rich},
-    primitive::{any, choice, empty, end, just, todo},
-    recovery::skip_then_retry_until,
-    span::{SimpleSpan, Span as _},
-    text, ConfigIterParser, IterParser, Parser,
-};
-use internment::ArenaIntern;
+use internment::Intern;
 
-use crate::{
-    arena::Id,
-    span::{FileCache, Span, Spanned},
-};
+use crate::span::{Span, Spanned};
 
-#[derive(Debug, Clone, Copy)]
-pub enum Token<'a> {
+#[derive(Debug, Clone)]
+pub enum Token {
     Int(i64),
     Nat(u64),
     Float(f64),
-    String(ArenaIntern<'a, String>),
+    String(Intern<String>),
     Char(char),
     Bool(bool),
-    Ident(ArenaIntern<'a, String>),
+    Ident(Intern<String>),
+    Wildcard,
     Op(Op),
     Symbol(Symbol),
     Keyword(Keyword),
@@ -38,10 +26,12 @@ pub enum Token<'a> {
     /// += -= *= /= %=
     /// ?=
     Assign(Option<Op>),
-    Error(char),
+    Error(String),
+    Indent(usize),
+    Newline,
 }
 
-impl<'a> Token<'a> {
+impl Token {
     pub fn spanned(self, span: Span) -> Spanned<Self> {
         (self, span)
     }
@@ -86,6 +76,9 @@ pub enum Op {
     Or,
     /// not
     Not,
+    /// ..
+    /// Used as a concat operator, or to represent a range
+    Concat,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -100,11 +93,6 @@ pub enum Delim {
 pub enum Symbol {
     /// .
     Dot,
-    /// ..
-    /// Used as a concat operator, or to represent a range
-    Concat,
-    /// ..=
-    Unpack,
     /// :
     Colon,
     /// ::
@@ -124,6 +112,8 @@ pub enum Symbol {
     Backslash,
     /// ,
     Comma,
+    /// !
+    Bang,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -131,7 +121,7 @@ pub enum Keyword {
     Fn,
     Type,
     Import,
-    Class,
+    Struct,
     /// self
     SelfParam,
     /// Self
@@ -150,21 +140,25 @@ pub enum Keyword {
     Break,
     Continue,
     Return,
+    Enum,
 }
 
-impl<'a> Display for Token<'a> {
+impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
+        match self {
+            Token::Newline => write!(f, "Newline"),
+            Token::Indent(i) => write!(f, "Indent {}", i),
             Token::Nat(i) => write!(f, "{}", i),
             Token::Int(i) => write!(f, "{}", i),
             Token::Float(v) => write!(f, "{}", v),
             Token::String(s) => write!(f, "\"{}\"", s),
             Token::Char(c) => write!(f, "'{}'", c),
-            Token::Bool(b) => write!(f, "{}", if b { "true" } else { "false" }),
+            Token::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Token::Ident(s) => write!(f, "{}", s),
             Token::Op(op) => write!(f, "{}", op),
             Token::Symbol(sym) => write!(f, "{}", sym),
             Token::Keyword(kw) => write!(f, "{}", kw),
+            Token::Wildcard => write!(f, "_"),
             Token::Open(d) => match d {
                 Delim::Paren => write!(f, "("),
                 Delim::Bracket => write!(f, "["),
@@ -203,6 +197,7 @@ impl Display for Op {
             Op::And => write!(f, "and"),
             Op::Or => write!(f, "or"),
             Op::Not => write!(f, "not"),
+            Op::Concat => write!(f, ".."),
         }
     }
 }
@@ -211,8 +206,6 @@ impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Symbol::Dot => write!(f, "."),
-            Symbol::Concat => write!(f, ".."),
-            Symbol::Unpack => write!(f, "..="),
             Symbol::Colon => write!(f, ":"),
             Symbol::DoubleColon => write!(f, "::"),
             Symbol::RArrow => write!(f, "->"),
@@ -222,6 +215,7 @@ impl Display for Symbol {
             Symbol::Pipe => write!(f, "|"),
             Symbol::Backslash => write!(f, "\\"),
             Symbol::Comma => write!(f, ","),
+            Symbol::Bang => write!(f, "!"),
         }
     }
 }
@@ -232,7 +226,8 @@ impl Display for Keyword {
             Keyword::Fn => write!(f, "fn"),
             Keyword::Type => write!(f, "type"),
             Keyword::Import => write!(f, "import"),
-            Keyword::Class => write!(f, "class"),
+            Keyword::Struct => write!(f, "struct"),
+            Keyword::Enum => write!(f, "enum"),
             Keyword::SelfParam => write!(f, "self"),
             Keyword::SelfType => write!(f, "Self"),
             Keyword::Let => write!(f, "let"),
@@ -251,63 +246,4 @@ impl Display for Keyword {
             Keyword::Return => write!(f, "return"),
         }
     }
-}
-
-pub struct LexerState {
-    interner: internment::Arena<String>,
-}
-
-impl Default for LexerState {
-    fn default() -> Self {
-        LexerState {
-            interner: internment::Arena::new(),
-        }
-    }
-}
-
-pub type Output<'a> = Vec<Spanned<Token<'a>>>;
-pub type Extra<'a> = Full<Rich<'a, char, Span>, LexerState, ()>;
-
-pub fn lexer<'a, I>() -> impl Parser<'a, I, Output<'a>, Extra<'a>>
-where
-    I: StrInput<'a, char, Offset = usize, Span = Span>,
-{
-    let float = text::int(10)
-        .then_ignore(just('.'))
-        .then(text::int(10))
-        .map(|(v, d): (&str, &str)| Token::Float(format!("{v}.{d}").parse::<f64>().unwrap()));
-
-    let token = choice((
-        float,
-        // todo
-        //
-    ))
-    .or(any().map(Token::Error))
-    .map_with_span(|tok, span| (tok, span))
-    .padded();
-
-    token.repeated().collect().padded().then_ignore(end())
-}
-
-#[test]
-fn t() {
-    let sources = FileCache::new();
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("test.luna");
-    let path = workspace;
-    let source = sources.resolve(&path).unwrap();
-    let mut state = LexerState {
-        interner: internment::Arena::new(),
-    };
-    let code = sources.get(source).chars().collect::<String>();
-    let res = lexer().parse_with_state(code.as_str().with_context(source), &mut state);
-
-    if res.has_errors() {
-        res.errors().for_each(|e| {
-            println!("{:?}", e);
-        });
-    }
-    if let Some(output) = res.output() {
-        println!("{:#?}", output);
-    }
-    assert!(false)
 }

@@ -116,23 +116,3 @@ impl<T, const N: usize> Drop for Arena<T, N> {
         }
     }
 }
-
-#[test]
-fn bruh() {
-    let arena = Arena::<u32, 4>::new();
-    let id = arena.insert(0);
-    let id2 = arena.insert(1);
-    let id3 = arena.insert(2);
-    let id4 = arena.insert(3);
-    let id5 = arena.insert(4);
-    let id6 = arena.insert(5);
-    let id7 = arena.insert(6);
-
-    assert_eq!(arena.get(id), &0);
-    assert_eq!(arena.get(id2), &1);
-    assert_eq!(arena.get(id3), &2);
-    assert_eq!(arena.get(id4), &3);
-    assert_eq!(arena.get(id5), &4);
-    assert_eq!(arena.get(id6), &5);
-    assert_eq!(arena.get(id7), &6);
-}

@@ -11,5 +11,5 @@ ariadne = "0.3.0"
 boxcar = "0.1.0"
 bumpalo = { version = "3.13.0", features = ["collections"] }
 chumsky = { git = "https://github.com/zesterer/chumsky", version = "1.0.0-alpha.4", features = ["label", "either", "memoization"] }
-internment = { version = "0.7.1", features = ["arena"], default-features = false }
+internment = { version = "0.7.1", features = ["arena", "intern"], default-features = false }
 slotmap = "1.0.6"

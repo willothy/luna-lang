@@ -1,2 +1,32 @@
 
-type t = string
+type enum Option<T> ::
+  | Some(T)
+  \ None
+
+type class Person ::
+  name : string
+  age  : int
+
+type struct Id ::
+  name : string
+  job  : Option<string>
+
+fn Person::identify(self) -> Id
+  Id!
+    name: self.name
+    job:  None
+
+type class Employed
+
+fn Engineer::
+
+fn count(n: int) -> int
+  let t = None
+  loop
+    t = match t in
+      | Some(v)  => match v in
+        | 10 => break t
+        \ v  => Some(v + 1)
+      \ None     => Some(0)
+
+
